@@ -53,11 +53,7 @@ Realtime-Transcription/
 ├── models/                          # FunASR 模型（gitignore）
 ├── config.json                      # 运行时配置（gitignore）
 ├── speaker_banks/                   # 说话人库（gitignore）
-├── requirements.txt
-├── start.bat                        # 启动脚本
-├── build_package.py                 # 整合包构建脚本
-├── build_package.bat                # 构建脚本入口
-└── PARAMETERS.md                    # 参数详细说明书
+├── requirements.txt                 # 项目依赖列表
 ```
 
 ---
