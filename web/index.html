@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Realtime Transcription</title>
+  <!-- P-19: 移除外部 Google Fonts 依赖（供应链风险 + SRI 对动态 CSS 不可行）。
+       改用系统字体栈，'Inter' 仍作为首选（若用户本地已安装则生效），否则回退到 system-ui。 -->
+  <link rel="stylesheet" href="/static/style.css?v=13">
+</head>
+<body>
+<div class="app">
+  <!-- 紧凑顶栏 -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1 class="topbar-title">Realtime Transcription</h1>
+      <span class="topbar-subtitle">Fun-ASR</span>
+    </div>
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="transcribe">转录</button>
+      <button class="tab-btn" data-tab="settings">设置</button>
+    </nav>
+    <div class="status-indicator">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">未连接</span>
+    </div>
+  </header>
+
+  <!-- 安全上下文警告 -->
+  <div class="secure-context-warning" id="secureWarning">
+    建议在 localhost 环境中运行以获得最佳性能。
+  </div>
+
+  <!-- 独立错误横幅 -->
+  <div class="banner banner-error" id="errorBanner" role="alert" aria-live="assertive">
+    <span id="errorMessage"></span>
+    <button class="btn btn-retry" id="retryBtn">重试</button>
+    <button class="banner-close" id="errorBannerClose">&times;</button>
+  </div>
+
+  <!-- 独立成功横幅 -->
+  <div class="banner banner-success" id="successBanner" role="status">
+    <span id="successMessage"></span>
+  </div>
+
+  <!-- 转录页 -->
+  <div class="tab-page active" id="page-transcribe">
+    <main class="transcribe-page">
+      <!-- 操作栏 -->
+      <div class="action-bar">
+        <div class="btn-row">
+          <button class="btn btn-start" id="startBtn">开始转录</button>
+          <button class="btn btn-stop hidden" id="stopBtn">停止</button>
+        </div>
+        <div class="latency-panel hidden" id="latencyPanel">
+          <div class="latency-item">
+            <span class="latency-label">Pass1 流式</span>
+            <span class="latency-value" id="pass1Latency">--</span>
+            <span class="latency-unit">ms</span>
+            <span class="latency-rtf" id="pass1Rtf">RTF: --</span>
+          </div>
+          <div class="latency-item">
+            <span class="latency-label">Pass2 离线</span>
+            <span class="latency-value" id="pass2Latency">--</span>
+            <span class="latency-unit">ms</span>
+            <span class="latency-rtf" id="pass2Rtf">RTF: --</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pass1 实时识别 -->
+      <section class="card" aria-label="实时识别">
+        <div class="card-title">
+          <span>实时识别</span>
+          <span class="pass-badge pass1-badge">Pass1</span>
+        </div>
+        <div class="pass1-area" id="pass1Area">
+          <div class="pass1-text" id="pass1Text"></div>
+          <div class="pass1-placeholder" id="pass1Placeholder">等待语音输入...</div>
+        </div>
+      </section>
+
+      <!-- Pass2 精炼结果 -->
+      <section class="card" aria-label="精炼结果">
+        <div class="card-title">
+          <span>精炼结果</span>
+          <span class="pass-badge pass2-badge">Pass2</span>
+          <span class="sentence-count hidden" id="sentenceCount">0 句</span>
+          <div class="card-actions">
+            <button class="btn-icon" id="copyBtn" title="复制全文">复制</button>
+            <button class="btn-icon" id="exportBtn" title="导出TXT">导出</button>
+          </div>
+        </div>
+        <div class="transcription-area" id="transcriptionArea" role="log" aria-live="polite">
+          <div class="empty-state" id="emptyState">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+              <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/>
+            </svg>
+            <p>点击「开始转录」以启动实时语音识别</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 设置页 -->
+  <div class="tab-page" id="page-settings">
+    <div class="settings-page">
+      <div class="settings-grid">
+        <!-- 连接设置卡片 -->
+        <section class="card settings-card" aria-label="连接设置">
+          <div class="card-title">连接设置</div>
+          <div class="section-content">
+            <div class="form-group">
+              <label for="serverUrl">服务器地址</label>
+              <input type="text" id="serverUrl" value="ws://localhost:8000/ws" pattern="^wss?://.+">
+            </div>
+            <div class="form-group">
+              <label for="audioDeviceSelect">音频输出设备</label>
+              <select id="audioDeviceSelect">
+                <option value="auto">自动检测</option>
+              </select>
+              <div class="model-info" id="audioDeviceInfo">
+                <span class="badge badge-medium">加载中...</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="deviceSelect">计算设备</label>
+              <select id="deviceSelect">
+                <option value="auto">Auto（自动检测）</option>
+                <option value="cpu">CPU</option>
+                <option value="cuda">GPU (CUDA)</option>
+              </select>
+              <div class="model-info" id="deviceInfo">
+                <span class="badge badge-medium">检测中...</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="language">语言</label>
+              <select id="language">
+                <option value="auto">Auto</option>
+                <option value="中文">中文（含方言）</option>
+                <option value="English">English</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <!-- 模型设置卡片 -->
+        <section class="card settings-card" aria-label="模型设置">
+          <div class="card-title">模型设置</div>
+          <div class="section-content">
+            <div class="form-group">
+              <label for="offlineModel">Pass2 离线模型</label>
+              <select id="offlineModel">
+                <option value="sensevoice">🥇 SenseVoice-Small · 极快 · 中英日韩粤</option>
+                <option value="seaco_paraformer">🥈 SeACoParaformer · 很快 · 中英 · 说话人+时间戳</option>
+                <option value="funasr_nano">🥉 Fun-ASR-Nano · 较慢 · 中英日</option>
+                <option value="funasr_nano_mlt">4th Fun-ASR-MLT-Nano · 较慢 · 31种语言</option>
+              </select>
+              <div class="model-info" id="modelInfo">
+                <span class="badge badge-fast">延迟排名 #1</span>
+                <span>~170x实时 · 非自回归 · 10s音频≈70ms</span>
+              </div>
+            </div>
+
+            <!-- 说话人分离 -->
+            <div class="subsection-title">
+              <input type="checkbox" id="speakerDiarization"> <label for="speakerDiarization">说话人分离</label>
+            </div>
+            <div class="spk-params hidden" id="speakerParams">
+              <div class="config-item">
+                <label>说话人数量</label>
+                <div class="slider-container">
+                  <input type="range" id="presetSpkNum" min="1" max="20" step="1" value="2">
+                  <span class="config-value" id="presetSpkNumValue">自动</span>
+                </div>
+              </div>
+              <div class="config-item">
+                <label>匹配相似度阈值</label>
+                <div class="slider-container">
+                  <input type="range" id="spkSimThreshold" min="0.01" max="0.99" step="0.01" value="0.65">
+                  <span class="config-value" id="spkSimThresholdValue">0.65</span>
+                </div>
+              </div>
+              <div class="config-item">
+                <label>说话人适应速度</label>
+                <div class="slider-container">
+                  <input type="range" id="spkEmaAlpha" min="0.01" max="0.99" step="0.01" value="0.30">
+                  <span class="config-value" id="spkEmaAlphaValue">0.30</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 热词 -->
+            <div class="hotword-section">
+              <div class="subsection-title">热词</div>
+              <textarea id="hotwordText" placeholder="输入热词，逗号或换行分隔&#10;例：语音识别,自然语言处理,大模型" rows="2"></textarea>
+              <div class="hotword-actions">
+                <span class="hotword-info" id="hotwordInfo">未输入热词</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 高级参数卡片 -->
+        <section class="card settings-card" aria-label="高级参数">
+          <div class="card-title">高级参数</div>
+          <div class="section-content">
+            <div class="config-section">
+              <div class="config-section-title">断句设置</div>
+              <div class="config-item">
+                <label>最大句子长度 (字符)</label>
+                <div class="slider-container">
+                  <input type="range" id="maxSentenceChars" min="10" max="200" step="5" value="100">
+                  <span class="config-value" id="maxSentenceCharsValue">100</span>
+                </div>
+              </div>
+            </div>
+            <div class="config-section">
+              <div class="config-section-title">VAD 端点检测</div>
+              <div class="config-item">
+                <label>静音断句间隔 (秒)</label>
+                <div class="slider-container">
+                  <input type="range" id="vadSilenceGap" min="0.2" max="5.0" step="0.1" value="0.5">
+                  <span class="config-value" id="vadSilenceGapValue">0.5</span>
+                </div>
+              </div>
+              <div class="config-item">
+                <label>VAD 检测间隔 (秒)</label>
+                <div class="slider-container">
+                  <input type="range" id="vadCheckInterval" min="0.1" max="2.0" step="0.05" value="0.15">
+                  <span class="config-value" id="vadCheckIntervalValue">0.15</span>
+                </div>
+              </div>
+            </div>
+            <div class="config-section">
+              <div class="config-section-title">Pass1 流式识别</div>
+              <div class="config-item">
+                <label>Chunk 大小 (帧数，1帧=60ms)</label>
+                <div class="slider-container">
+                  <input type="range" id="chunkSizeFrames" min="5" max="30" step="5" value="5">
+                  <span class="config-value" id="chunkSizeFramesValue">5帧 (300ms)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 说话人库管理卡片 -->
+        <section class="card settings-card" aria-label="说话人库管理">
+          <div class="card-title">说话人库管理</div>
+          <div class="section-content">
+            <div class="form-group">
+              <label for="spkBankName">库名称</label>
+              <input type="text" id="spkBankName" placeholder="说话人库名称（可选）">
+            </div>
+            <div class="btn-row" style="margin-bottom:0.75rem">
+              <button class="btn-upload" id="spkSaveBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存当前
+              </button>
+              <button class="btn-upload" id="spkLoadBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                加载列表
+              </button>
+            </div>
+            <div id="spkBankListArea" class="hidden">
+              <select id="spkBankSelect" class="inline-form-control" style="width:100%;margin-bottom:0.5rem"></select>
+              <div class="btn-row">
+                <button class="btn-upload" id="spkLoadConfirmBtn">确认加载</button>
+              </div>
+            </div>
+            <span class="hotword-info" id="spkBankInfo">未保存</span>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=13"></script>
+</body>
+</html>
